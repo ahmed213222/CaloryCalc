@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intermittent Fasting Food Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #0ea5e9; /* sky-500 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .result-card {
+            opacity: 0;
+            transform: scale(0.95);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+        }
+        .result-card-show {
+            opacity: 1;
+            transform: scale(1);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div class="container mx-auto p-4 md:p-8 min-h-screen flex flex-col items-center">
+        
+        <div class="w-full max-w-2xl text-center mb-8">
+            <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-emerald-400 mb-2">
+                IF Food Analyzer
+            </h1>
+            <p class="text-gray-400 mb-8 text-lg">
+                Enter a food to see its nutritional info and if it's fasting-friendly.
+            </p>
+
+            <!-- Input and Button -->
+            <div class="flex flex-col sm:flex-row gap-2 mb-8">
+                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500" placeholder="e.g., black coffee, handful of almonds, apple slice">
+                <button id="analyzeButton" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M20.4 14.5c-2.4-2.2-4.1-5.4-4.1-9.3V4a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1.2c0 3.9-1.7 7.1-4.1 9.3-1 .9-1.6 2.3-1.6 3.8V21h18v-2.8c0-1.5-.6-2.9-1.6-3.7z"></path><path d="M9 21h6"></path><path d="M12 3v1"></path></svg>
+                    Analyze Food
+                </button>
+            </div>
+        </div>
+
+        <!-- Status and Result Area -->
+        <div id="statusArea" class="text-center w-full max-w-2xl">
+            <div id="loader" class="hidden loader mx-auto"></div>
+            <div id="error" class="hidden text-red-400 bg-red-900/50 p-4 rounded-lg"></div>
+            <div id="resultContainer">
+                <!-- Result will be injected here -->
+            </div>
+            <div id="initialMessage" class="text-gray-500 mt-12">
+                <p>Your food analysis will appear here.</p>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- DOM Element References ---
+        const foodInput = document.getElementById('foodInput');
+        const analyzeButton = document.getElementById('analyzeButton');
+        const loader = document.getElementById('loader');
+        const errorContainer = document.getElementById('error');
+        const resultContainer = document.getElementById('resultContainer');
+        const initialMessage = document.getElementById('initialMessage');
+
+        // --- Event Listeners ---
+        analyzeButton.addEventListener('click', handleAnalysis);
+        foodInput.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                handleAnalysis();
+            }
+        });
+
+        /**
+         * Main function to handle the analysis process.
+         */
+        async function handleAnalysis() {
+            const foodQuery = foodInput.value.trim();
+
+            if (!foodQuery) {
+                showError("Please enter a food to analyze.");
+                return;
+            }
+
+            // --- Reset UI State ---
+            hideError();
+            resultContainer.innerHTML = '';
+            initialMessage.classList.add('hidden');
+            showLoader();
+            analyzeButton.disabled = true;
+            analyzeButton.classList.add('opacity-50', 'cursor-not-allowed');
+
+            try {
+                const analysis = await fetchFoodAnalysis(foodQuery);
+                displayResult(analysis);
+            } catch (err) {
+                console.error("An error occurred:", err);
+                // Check if the error message indicates a 503 (overloaded) failure
+                if (err.message && (err.message.includes("status 503") || err.message.includes("The model is overloaded"))) {
+                    showError("The analysis service is currently busy. Please wait a moment and try your search again.");
+                } else {
+                    showError("Sorry, an unknown error occurred. Please check your connection and try again.");
+                }
+            } finally {
+                // --- Restore UI State ---
+                hideLoader();
+                analyzeButton.disabled = false;
+                analyzeButton.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        /**
+         * Fetches food analysis using the Gemini API with a structured response schema.
+         * Implements a retry mechanism with exponential backoff for 503 errors.
+         * @param {string} foodName - The name of the food to analyze.
+         * @returns {Promise<Object>} - A promise that resolves to the analysis object.
+         */
+        async function fetchFoodAnalysis(foodName) {
+            // --- Gemini API Configuration ---
+            const apiKey = "AIzaSyC8YmKYw6-Z-DxHTU8tv6V9fhhOa0pDqdU"; // Your API Key
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+            // --- Define the expected JSON structure for the AI's response ---
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    foodName: { type: "STRING" },
+                    calories: { type: "NUMBER" },
+                    fat: { type: "NUMBER" },
+                    protein: { type: "NUMBER" },
+                    carbohydrates: { type: "NUMBER" },
+                    isFastingFriendly: { type: "BOOLEAN" },
+                    reasoning: { type: "STRING" }
+                },
+                required: ["foodName", "calories", "fat", "protein", "carbohydrates", "isFastingFriendly", "reasoning"]
+            };
+
+            // --- Craft the prompt for the AI ---
+            const prompt = `
+                You are a nutritional expert specializing in intermittent fasting (IF).
+                Analyze the following food item: "${foodName}".
+
+                Your task is to provide a nutritional breakdown and determine if it would break a fast.
+                A food breaks a fast if it contains more than a negligible amount of calories (generally > 5-10 kcal) or triggers a significant insulin response (e.g., from sugars or protein).
+                - Black coffee, plain tea, and water are generally considered safe.
+                - Anything with significant fats, proteins, or carbohydrates will break a fast.
+
+                Provide the following details:
+                1.  **foodName**: The name of the food you analyzed.
+                2.  **calories**: Estimated calories (as a number).
+                3.  **fat**: Estimated grams of fat (as a number).
+                4.  **protein**: Estimated grams of protein (as a number).
+                5.  **carbohydrates**: Estimated grams of carbohydrates (as a number).
+                6.  **isFastingFriendly**: A boolean (true if it does NOT break a fast, false if it DOES).
+                7.  **reasoning**: A brief, one-sentence explanation for your decision.
+
+                Return the data strictly in the requested JSON format. Do not include any other text, explanations, or markdown.
+            `;
+            
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: responseSchema
+                }
+            };
+            
+            // --- Retry Logic ---
+            const maxRetries = 3;
+            let delay = 1500; // Start with 1.5 second delay
+
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                // If the request was successful, parse and return the data
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
+                        const jsonText = result.candidates[0].content.parts[0].text;
+                        return JSON.parse(jsonText);
+                    } else {
+                        // Successful response but unexpected structure. Don't retry.
+                        console.warn("Unexpected API response structure:", result);
+                        throw new Error("Could not parse the analysis from the API response.");
+                    }
+                }
+
+                // If the service is unavailable (503) and we have retries left, wait and try again.
+                if (response.status === 503 && attempt < maxRetries) {
+                    console.log(`Attempt ${attempt} failed with 503. Retrying in ${delay / 1000}s...`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2; // Double the delay for the next attempt (exponential backoff)
+                } else {
+                    // For other errors, or if all retries fail, throw the final error.
+                    const errorBody = await response.text();
+                    throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
+                }
+            }
+        }
+
+        /**
+         * Renders the analysis result in a card.
+         * @param {Object} data - The analysis data from the API.
+         */
+        function displayResult(data) {
+            resultContainer.innerHTML = ''; // Clear previous result
+
+            const card = document.createElement('div');
+            card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-left w-full';
+
+            const isFriendly = data.isFastingFriendly;
+            const statusBg = isFriendly ? 'bg-green-500/20' : 'bg-red-500/20';
+            const statusText = isFriendly ? 'text-green-300' : 'text-red-300';
+            const statusDot = isFriendly ? 'bg-green-400' : 'bg-red-400';
+            const statusLabel = isFriendly ? 'FASTING FRIENDLY' : 'BREAKS FAST';
+
+            card.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-white">${data.foodName}</h2>
+                    <span class="flex items-center text-sm font-bold px-3 py-1.5 rounded-full ${statusBg} ${statusText}">
+                        <span class="w-2 h-2 mr-2 rounded-full ${statusDot}"></span>
+                        ${statusLabel}
+                    </span>
+                </div>
+
+                <p class="text-gray-400 mb-6 italic">"${data.reasoning}"</p>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                    <div class="bg-gray-700/50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400 mb-1">Calories</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.calories.toFixed(0)}</p>
+                    </div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400 mb-1">Fat</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.fat.toFixed(1)}g</p>
+                    </div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400 mb-1">Protein</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.protein.toFixed(1)}g</p>
+                    </div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg">
+                        <p class="text-sm text-gray-400 mb-1">Carbs</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.carbohydrates.toFixed(1)}g</p>
+                    </div>
+                </div>
+            `;
+            
+            resultContainer.appendChild(card);
+            
+            // Trigger animation
+            setTimeout(() => {
+                card.classList.add('result-card-show');
+            }, 50);
+        }
+
+        // --- UI State Helper Functions ---
+        function showLoader() { loader.classList.remove('hidden'); }
+        function hideLoader() { loader.classList.add('hidden'); }
+        function showError(message) {
+            errorContainer.textContent = message;
+            errorContainer.classList.remove('hidden');
+        }
+        function hideError() { errorContainer.classList.add('hidden'); }
+
+    </script>
+</body>
+</html>
