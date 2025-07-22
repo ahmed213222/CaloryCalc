@@ -24,16 +24,16 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        .result-card, .comparison-card, .detailed-explanation {
+        .result-card, .comparison-card, .detailed-explanation, .alternative-card {
             opacity: 0;
             transform: scale(0.95);
             transition: opacity 0.5s ease, transform 0.5s ease;
         }
-        .result-card-show, .comparison-card-show, .detailed-explanation-show {
+        .result-card-show, .comparison-card-show, .detailed-explanation-show, .alternative-card-show {
             opacity: 1;
             transform: scale(1);
         }
-        .detailed-explanation {
+        .detailed-explanation, .alternative-card {
             transition-delay: 200ms;
         }
     </style>
@@ -106,12 +106,10 @@
             }
             resetUIState();
 
-            // --- Logic to decide between single analysis and comparison ---
             const separators = / و |،|,/i;
             const parts = foodQuery.split(separators);
 
             if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
-                // --- Comparison Flow ---
                 const food1 = parts[0].trim();
                 const food2 = parts[1].trim();
                 try {
@@ -121,10 +119,11 @@
                     handleApiError(err);
                 }
             } else {
-                // --- Single Analysis Flow ---
                 try {
-                    lastAnalysisData = await fetchFoodAnalysis(foodQuery);
-                    displaySingleResult(lastAnalysisData);
+                    const originalData = await fetchFoodAnalysis(foodQuery);
+                    lastAnalysisData = originalData; 
+                    const alternativeData = await fetchBetterAlternative(originalData);
+                    displaySingleResult(originalData, alternativeData);
                 } catch (err) {
                     handleApiError(err);
                 }
@@ -166,7 +165,7 @@
         }
 
         /**
-         * Fetches initial food analysis using a structured schema.
+         * Fetches initial food analysis.
          */
         async function fetchFoodAnalysis(foodName) {
             const responseSchema = { type: "OBJECT", properties: { foodName: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbohydrates: { type: "NUMBER" }, isFastingFriendly: { type: "BOOLEAN" }, reasoning: { type: "STRING" } }, required: ["foodName", "calories", "fat", "protein", "carbohydrates", "isFastingFriendly", "reasoning"] };
@@ -175,54 +174,79 @@
         }
 
         /**
+         * Fetches a better alternative for a given food.
+         */
+        async function fetchBetterAlternative(originalFood) {
+            const responseSchema = { type: "OBJECT", properties: { alternativeName: { type: "STRING" }, reason: { type: "STRING" }, calories: { type: "NUMBER" } }, required: ["alternativeName", "reason", "calories"] };
+            const prompt = `أنت خبير تغذية. الطعام الحالي هو "${originalFood.foodName}" وبه حوالي ${originalFood.calories} سعرة حرارية. اقترح بديلاً صحياً أفضل يكون أقل في السعرات الحرارية ومناسباً أكثر للصيام المتقطع وفقدان الوزن. قدم اسم البديل، سبب كونه أفضل، وعدد سعراته التقريبية. أرجع البيانات بصيغة JSON باللغة العربية.`;
+            try {
+                return await callGemini(prompt, responseSchema);
+            } catch (error) {
+                console.error("Could not fetch alternative:", error);
+                return null; // Return null if fetching alternative fails, so the app doesn't break
+            }
+        }
+
+        /**
          * Fetches comparison data for two foods.
          */
         async function fetchFoodComparison(food1, food2) {
-            const responseSchema = {
-                type: "OBJECT",
-                properties: {
-                    item1: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } },
-                    item2: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } },
-                    verdict: { type: "STRING" }
-                },
-                required: ["item1", "item2", "verdict"]
-            };
-            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين "${food1}" و "${food2}". قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة بناءً على هدف شائع (مثل فقدان الوزن أو الصحة العامة).`;
+            const responseSchema = { type: "OBJECT", properties: { item1: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } }, item2: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } }, verdict: { type: "STRING" } }, required: ["item1", "item2", "verdict"] };
+            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين "${food1}" و "${food2}". قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة.`;
             return await callGemini(prompt, responseSchema);
         }
 
         /**
-         * Renders the single analysis result.
+         * Renders the single analysis result along with its alternative.
          */
-        function displaySingleResult(data) {
+        function displaySingleResult(originalData, alternativeData) {
+            // --- Main Result Card ---
             const card = document.createElement('div');
             card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
-            const isFriendly = data.isFastingFriendly;
+            const isFriendly = originalData.isFastingFriendly;
             const statusLabel = isFriendly ? 'مناسب للصيام' : 'يكسر الصيام';
             card.innerHTML = `
                 <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold text-white">${data.foodName}</h2>
+                    <h2 class="text-2xl font-bold text-white">${originalData.foodName}</h2>
                     <span class="flex items-center text-sm font-bold px-3 py-1.5 rounded-full ${isFriendly ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}">
                         <span class="w-2 h-2 ml-2 rounded-full ${isFriendly ? 'bg-green-400' : 'bg-red-400'}"></span>
                         ${statusLabel}
                     </span>
                 </div>
-                <p class="text-gray-400 mb-6 italic">"${data.reasoning}"</p>
+                <p class="text-gray-400 mb-6 italic">"${originalData.reasoning}"</p>
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">السعرات</p><p class="text-2xl font-semibold text-sky-300">${(data.calories ?? 0).toFixed(0)}</p></div>
-                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">الدهون</p><p class="text-2xl font-semibold text-sky-300">${(data.fat ?? 0).toFixed(1)} ج</p></div>
-                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">البروتين</p><p class="text-2xl font-semibold text-sky-300">${(data.protein ?? 0).toFixed(1)} ج</p></div>
-                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">الكربوهيدرات</p><p class="text-2xl font-semibold text-sky-300">${(data.carbohydrates ?? 0).toFixed(1)} ج</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">السعرات</p><p class="text-2xl font-semibold text-sky-300">${(originalData.calories ?? 0).toFixed(0)}</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">الدهون</p><p class="text-2xl font-semibold text-sky-300">${(originalData.fat ?? 0).toFixed(1)} ج</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">البروتين</p><p class="text-2xl font-semibold text-sky-300">${(originalData.protein ?? 0).toFixed(1)} ج</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">الكربوهيدرات</p><p class="text-2xl font-semibold text-sky-300">${(originalData.carbohydrates ?? 0).toFixed(1)} ج</p></div>
                 </div>
             `;
+            resultContainer.appendChild(card);
+            setTimeout(() => card.classList.add('result-card-show'), 50);
+
+            // --- Better Alternative Card ---
+            if (alternativeData) {
+                const alternativeCard = document.createElement('div');
+                alternativeCard.className = 'alternative-card bg-teal-900/50 border border-teal-700 rounded-xl p-6 text-right w-full';
+                alternativeCard.innerHTML = `
+                    <h3 class="text-xl font-bold text-white mb-3 text-center">💡 بديل أفضل مقترح</h3>
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-emerald-300">${alternativeData.alternativeName}</p>
+                        <p class="text-lg text-gray-300 mb-4">(~${(alternativeData.calories ?? 0).toFixed(0)} سعرة حرارية)</p>
+                        <p class="text-gray-300 leading-relaxed">${alternativeData.reason}</p>
+                    </div>
+                `;
+                resultContainer.appendChild(alternativeCard);
+                setTimeout(() => alternativeCard.classList.add('alternative-card-show'), 200);
+            }
+
+            // --- Detailed Explanation Card ---
             const explanationCard = document.createElement('div');
             explanationCard.className = 'detailed-explanation bg-gray-800 border-dashed border-2 border-gray-700 rounded-xl p-6 text-right w-full';
-            explanationCard.innerHTML = `<button id="explanationBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg">اطلب شرحًا تفصيليًا عن ${data.foodName}</button><div id="explanationLoader" class="hidden loader mx-auto mt-4"></div><div id="explanationResult" class="text-gray-300 mt-4 prose prose-invert max-w-none text-right"></div>`;
-            resultContainer.appendChild(card);
+            explanationCard.innerHTML = `<button id="explanationBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg">اطلب شرحًا تفصيليًا عن ${originalData.foodName}</button><div id="explanationLoader" class="hidden loader mx-auto mt-4"></div><div id="explanationResult" class="text-gray-300 mt-4 prose prose-invert max-w-none text-right"></div>`;
             resultContainer.appendChild(explanationCard);
             document.getElementById('explanationBtn').addEventListener('click', handleDetailedExplanation);
-            setTimeout(() => card.classList.add('result-card-show'), 50);
-            setTimeout(() => explanationCard.classList.add('detailed-explanation-show'), 250);
+            setTimeout(() => explanationCard.classList.add('detailed-explanation-show'), 350);
         }
 
         /**
@@ -234,7 +258,6 @@
             card.innerHTML = `
                 <h2 class="text-2xl font-bold text-white text-center mb-6">مقارنة بين: ${data.item1.name} و ${data.item2.name}</h2>
                 <div class="grid grid-cols-2 gap-4">
-                    <!-- Item 1 Column -->
                     <div class="border-l border-gray-700 pl-4">
                         <h3 class="text-xl font-bold text-sky-300 mb-3">${data.item1.name}</h3>
                         <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(data.item1.calories ?? 0).toFixed(0)}</p>
@@ -242,7 +265,6 @@
                         <p class="mb-2"><span class="font-semibold">البروتين:</span> ${(data.item1.protein ?? 0).toFixed(1)} ج</p>
                         <p class="mb-2"><span class="font-semibold">الكربوهيدرات:</span> ${(data.item1.carbs ?? 0).toFixed(1)} ج</p>
                     </div>
-                    <!-- Item 2 Column -->
                     <div>
                         <h3 class="text-xl font-bold text-emerald-300 mb-3">${data.item2.name}</h3>
                         <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(data.item2.calories ?? 0).toFixed(0)}</p>
