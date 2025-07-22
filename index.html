@@ -183,8 +183,8 @@
             };
             
             // --- Retry Logic ---
-            const maxRetries = 3;
-            let delay = 1500; // Start with 1.5 second delay
+            const maxRetries = 4; // Increased from 3 to 4
+            let delay = 2000; // Increased from 1500ms to 2000ms
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 const response = await fetch(apiUrl, {
