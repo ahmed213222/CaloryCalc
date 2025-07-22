@@ -47,12 +47,12 @@
                 محلل ومقارن الطعام
             </h1>
             <p class="text-gray-400 mb-8 text-lg">
-                أدخل طعامًا واحدًا لتحليله، أو نوعين للمقارنة بينهما (مثال: تفاح و موز).
+                أدخل طعامًا واحدًا لتحليله، أو عدة أطعمة مفصولة بـ "-" للمقارنة.
             </p>
 
             <!-- Input and Button -->
             <div class="flex flex-col sm:flex-row gap-2 mb-8">
-                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: بيضة مسلوقة، أو تفاحة و برتقالة">
+                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: تفاح - موز - برتقال">
                 <button id="analyzeButton" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2"><path d="M20.4 14.5c-2.4-2.2-4.1-5.4-4.1-9.3V4a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1.2c0 3.9-1.7 7.1-4.1 9.3-1 .9-1.6 2.3-1.6 3.8V21h18v-2.8c0-1.5-.6-2.9-1.6-3.7z"></path><path d="M9 21h6"></path><path d="M12 3v1"></path></svg>
                     تحليل أو مقارنة
@@ -83,7 +83,6 @@
         const resultContainer = document.getElementById('resultContainer');
         const initialMessage = document.getElementById('initialMessage');
 
-        // Store the last analysis result
         let lastAnalysisData = null;
 
         // --- Event Listeners ---
@@ -106,19 +105,19 @@
             }
             resetUIState();
 
-            const separators = / و |،|,/i;
-            const parts = foodQuery.split(separators);
+            // Use dash as a separator and handle multiple items
+            const parts = foodQuery.split('-').map(p => p.trim()).filter(p => p);
 
-            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
-                const food1 = parts[0].trim();
-                const food2 = parts[1].trim();
+            if (parts.length >= 2) {
+                // --- Comparison Flow for 2 or more items ---
                 try {
-                    const comparisonData = await fetchFoodComparison(food1, food2);
-                    displayComparisonResult(comparisonData);
+                    const comparisonData = await fetchMultiFoodComparison(parts);
+                    displayMultiComparisonResult(comparisonData);
                 } catch (err) {
                     handleApiError(err);
                 }
             } else {
+                // --- Single Analysis Flow ---
                 try {
                     const originalData = await fetchFoodAnalysis(foodQuery);
                     lastAnalysisData = originalData; 
@@ -183,16 +182,37 @@
                 return await callGemini(prompt, responseSchema);
             } catch (error) {
                 console.error("Could not fetch alternative:", error);
-                return null; // Return null if fetching alternative fails, so the app doesn't break
+                return null;
             }
         }
 
         /**
-         * Fetches comparison data for two foods.
+         * Fetches comparison data for multiple foods.
          */
-        async function fetchFoodComparison(food1, food2) {
-            const responseSchema = { type: "OBJECT", properties: { item1: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } }, item2: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } }, verdict: { type: "STRING" } }, required: ["item1", "item2", "verdict"] };
-            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين "${food1}" و "${food2}". قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة.`;
+        async function fetchMultiFoodComparison(foods) {
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    comparisonResults: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                name: { type: "STRING" },
+                                calories: { type: "NUMBER" },
+                                fat: { type: "NUMBER" },
+                                protein: { type: "NUMBER" },
+                                carbs: { type: "NUMBER" }
+                            },
+                            required: ["name", "calories", "fat", "protein", "carbs"]
+                        }
+                    },
+                    verdict: { type: "STRING" }
+                },
+                required: ["comparisonResults", "verdict"]
+            };
+            const foodList = foods.join('، ');
+            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين الأطعمة التالية: ${foodList}. قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة بناءً على هدف شائع (مثل فقدان الوزن أو الصحة العامة). تأكد من أن مصفوفة comparisonResults تحتوي على نتائج لكل الأطعمة المطلوبة.`;
             return await callGemini(prompt, responseSchema);
         }
 
@@ -200,7 +220,6 @@
          * Renders the single analysis result along with its alternative.
          */
         function displaySingleResult(originalData, alternativeData) {
-            // --- Main Result Card ---
             const card = document.createElement('div');
             card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
             const isFriendly = originalData.isFastingFriendly;
@@ -224,7 +243,6 @@
             resultContainer.appendChild(card);
             setTimeout(() => card.classList.add('result-card-show'), 50);
 
-            // --- Better Alternative Card ---
             if (alternativeData) {
                 const alternativeCard = document.createElement('div');
                 alternativeCard.className = 'alternative-card bg-teal-900/50 border border-teal-700 rounded-xl p-6 text-right w-full';
@@ -240,7 +258,6 @@
                 setTimeout(() => alternativeCard.classList.add('alternative-card-show'), 200);
             }
 
-            // --- Detailed Explanation Card ---
             const explanationCard = document.createElement('div');
             explanationCard.className = 'detailed-explanation bg-gray-800 border-dashed border-2 border-gray-700 rounded-xl p-6 text-right w-full';
             explanationCard.innerHTML = `<button id="explanationBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg">اطلب شرحًا تفصيليًا عن ${originalData.foodName}</button><div id="explanationLoader" class="hidden loader mx-auto mt-4"></div><div id="explanationResult" class="text-gray-300 mt-4 prose prose-invert max-w-none text-right"></div>`;
@@ -250,28 +267,46 @@
         }
 
         /**
-         * Renders the comparison result.
+         * Renders the comparison result for multiple items.
          */
-        function displayComparisonResult(data) {
+        function displayMultiComparisonResult(data) {
+            if (!data || !data.comparisonResults || data.comparisonResults.length === 0) {
+                showError("لم يتمكن من الحصول على بيانات المقارنة.");
+                return;
+            }
+
             const card = document.createElement('div');
             card.className = 'comparison-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
+
+            const foodNames = data.comparisonResults.map(item => item.name).join(' و ');
+            
+            let gridColsClass = '';
+            switch(data.comparisonResults.length) {
+                case 2: gridColsClass = 'grid-cols-2'; break;
+                case 3: gridColsClass = 'grid-cols-1 md:grid-cols-3'; break;
+                case 4: gridColsClass = 'grid-cols-2 md:grid-cols-4'; break;
+                default: gridColsClass = 'grid-cols-2 md:grid-cols-4'; break;
+            }
+
+            let columnsHTML = '';
+            const colors = ['sky', 'emerald', 'amber', 'rose', 'indigo'];
+            data.comparisonResults.forEach((item, index) => {
+                const color = colors[index % colors.length];
+                columnsHTML += `
+                    <div class="border-l border-gray-700 pl-4 last:border-l-0">
+                        <h3 class="text-xl font-bold text-${color}-300 mb-3">${item.name}</h3>
+                        <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(item.calories ?? 0).toFixed(0)}</p>
+                        <p class="mb-2"><span class="font-semibold">الدهون:</span> ${(item.fat ?? 0).toFixed(1)} ج</p>
+                        <p class="mb-2"><span class="font-semibold">البروتين:</span> ${(item.protein ?? 0).toFixed(1)} ج</p>
+                        <p class="mb-2"><span class="font-semibold">الكربوهيدرات:</span> ${(item.carbs ?? 0).toFixed(1)} ج</p>
+                    </div>
+                `;
+            });
+
             card.innerHTML = `
-                <h2 class="text-2xl font-bold text-white text-center mb-6">مقارنة بين: ${data.item1.name} و ${data.item2.name}</h2>
-                <div class="grid grid-cols-2 gap-4">
-                    <div class="border-l border-gray-700 pl-4">
-                        <h3 class="text-xl font-bold text-sky-300 mb-3">${data.item1.name}</h3>
-                        <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(data.item1.calories ?? 0).toFixed(0)}</p>
-                        <p class="mb-2"><span class="font-semibold">الدهون:</span> ${(data.item1.fat ?? 0).toFixed(1)} ج</p>
-                        <p class="mb-2"><span class="font-semibold">البروتين:</span> ${(data.item1.protein ?? 0).toFixed(1)} ج</p>
-                        <p class="mb-2"><span class="font-semibold">الكربوهيدرات:</span> ${(data.item1.carbs ?? 0).toFixed(1)} ج</p>
-                    </div>
-                    <div>
-                        <h3 class="text-xl font-bold text-emerald-300 mb-3">${data.item2.name}</h3>
-                        <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(data.item2.calories ?? 0).toFixed(0)}</p>
-                        <p class="mb-2"><span class="font-semibold">الدهون:</span> ${(data.item2.fat ?? 0).toFixed(1)} ج</p>
-                        <p class="mb-2"><span class="font-semibold">البروتين:</span> ${(data.item2.protein ?? 0).toFixed(1)} ج</p>
-                        <p class="mb-2"><span class="font-semibold">الكربوهيدرات:</span> ${(data.item2.carbs ?? 0).toFixed(1)} ج</p>
-                    </div>
+                <h2 class="text-2xl font-bold text-white text-center mb-6">مقارنة بين: ${foodNames}</h2>
+                <div class="grid ${gridColsClass} gap-4">
+                    ${columnsHTML}
                 </div>
                 <hr class="border-gray-700 my-6">
                 <div>
