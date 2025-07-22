@@ -24,18 +24,20 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        .result-card, .comparison-card, .detailed-explanation, .alternative-card {
+        .result-card, .comparison-card, .detailed-explanation, .alternative-card, .recipe-card {
             opacity: 0;
             transform: scale(0.95);
             transition: opacity 0.5s ease, transform 0.5s ease;
         }
-        .result-card-show, .comparison-card-show, .detailed-explanation-show, .alternative-card-show {
+        .result-card-show, .comparison-card-show, .detailed-explanation-show, .alternative-card-show, .recipe-card-show {
             opacity: 1;
             transform: scale(1);
         }
         .detailed-explanation, .alternative-card {
             transition-delay: 200ms;
         }
+        .prose ol { padding-right: 1.5rem; }
+        .prose ul { padding-right: 1.5rem; }
     </style>
 </head>
 <body class="bg-gray-900 text-white">
@@ -44,18 +46,18 @@
         
         <div class="w-full max-w-2xl text-center mb-8">
             <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-emerald-400 mb-2">
-                محلل ومقارن الطعام
+                مساعدك الغذائي الذكي
             </h1>
             <p class="text-gray-400 mb-8 text-lg">
-                أدخل طعامًا واحدًا لتحليله، أو عدة أطعمة مفصولة بـ "-" للمقارنة.
+                أدخل طعامًا لتحليله، أو استخدم "-" للمقارنة، أو "+" لإنشاء وصفة.
             </p>
 
             <!-- Input and Button -->
             <div class="flex flex-col sm:flex-row gap-2 mb-8">
-                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: تفاح - موز - برتقال">
+                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: دجاج + أرز + بروكلي">
                 <button id="analyzeButton" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2"><path d="M20.4 14.5c-2.4-2.2-4.1-5.4-4.1-9.3V4a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1.2c0 3.9-1.7 7.1-4.1 9.3-1 .9-1.6 2.3-1.6 3.8V21h18v-2.8c0-1.5-.6-2.9-1.6-3.7z"></path><path d="M9 21h6"></path><path d="M12 3v1"></path></svg>
-                    تحليل أو مقارنة
+                    تحليل أو إنشاء
                 </button>
             </div>
         </div>
@@ -95,7 +97,7 @@
 
         /**
          * Main function to handle the analysis process.
-         * It decides whether to perform a single analysis or a comparison.
+         * It decides the flow based on separators: '+' for recipe, '-' for comparison.
          */
         async function handleAnalysis() {
             const foodQuery = foodInput.value.trim();
@@ -105,13 +107,21 @@
             }
             resetUIState();
 
-            // Use dash as a separator and handle multiple items
-            const parts = foodQuery.split('-').map(p => p.trim()).filter(p => p);
+            const plusParts = foodQuery.split('+').map(p => p.trim()).filter(p => p);
+            const dashParts = foodQuery.split('-').map(p => p.trim()).filter(p => p);
 
-            if (parts.length >= 2) {
-                // --- Comparison Flow for 2 or more items ---
+            if (plusParts.length >= 2) {
+                // --- Recipe Suggestion Flow ---
                 try {
-                    const comparisonData = await fetchMultiFoodComparison(parts);
+                    const recipeData = await fetchRecipeSuggestion(plusParts);
+                    displayRecipeResult(recipeData);
+                } catch (err) {
+                    handleApiError(err);
+                }
+            } else if (dashParts.length >= 2) {
+                // --- Comparison Flow ---
+                try {
+                    const comparisonData = await fetchMultiFoodComparison(dashParts);
                     displayMultiComparisonResult(comparisonData);
                 } catch (err) {
                     handleApiError(err);
@@ -190,29 +200,37 @@
          * Fetches comparison data for multiple foods.
          */
         async function fetchMultiFoodComparison(foods) {
+            const responseSchema = { type: "OBJECT", properties: { comparisonResults: { type: "ARRAY", items: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } }, required: ["name", "calories", "fat", "protein", "carbs"] } }, verdict: { type: "STRING" } }, required: ["comparisonResults", "verdict"] };
+            const foodList = foods.join('، ');
+            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين الأطعمة التالية: ${foodList}. قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة. تأكد من أن مصفوفة comparisonResults تحتوي على نتائج لكل الأطعمة المطلوبة.`;
+            return await callGemini(prompt, responseSchema);
+        }
+        
+        /**
+         * Fetches a recipe suggestion based on ingredients.
+         */
+        async function fetchRecipeSuggestion(ingredients) {
             const responseSchema = {
                 type: "OBJECT",
                 properties: {
-                    comparisonResults: {
-                        type: "ARRAY",
-                        items: {
-                            type: "OBJECT",
-                            properties: {
-                                name: { type: "STRING" },
-                                calories: { type: "NUMBER" },
-                                fat: { type: "NUMBER" },
-                                protein: { type: "NUMBER" },
-                                carbs: { type: "NUMBER" }
-                            },
-                            required: ["name", "calories", "fat", "protein", "carbs"]
-                        }
-                    },
-                    verdict: { type: "STRING" }
+                    recipeName: { type: "STRING" },
+                    description: { type: "STRING" },
+                    healthAdvice: { type: "STRING" },
+                    instructions: { type: "ARRAY", items: { type: "STRING" } },
+                    nutrition: { type: "OBJECT", properties: { calories: { type: "STRING" }, protein: { type: "STRING" } } },
+                    youtubeSearchQuery: { type: "STRING" }
                 },
-                required: ["comparisonResults", "verdict"]
+                required: ["recipeName", "description", "healthAdvice", "instructions", "nutrition", "youtubeSearchQuery"]
             };
-            const foodList = foods.join('، ');
-            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين الأطعمة التالية: ${foodList}. قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة بناءً على هدف شائع (مثل فقدان الوزن أو الصحة العامة). تأكد من أن مصفوفة comparisonResults تحتوي على نتائج لكل الأطعمة المطلوبة.`;
+            const ingredientList = ingredients.join('، ');
+            const prompt = `أنت شيف وخبير تغذية. أعطيتك المكونات التالية: ${ingredientList}.
+            1.  اقترح اسمًا جذابًا لوجبة صحية يمكن تحضيرها.
+            2.  اكتب وصفًا موجزًا للوجبة.
+            3.  قدم نصيحة صحية: إذا كان أحد المكونات غير صحي (مثل المايونيز)، اقترح إزالته أو استبداله ببديل صحي. إذا كانت جميعها صحية، اذكر ذلك.
+            4.  اكتب تعليمات التحضير في خطوات مرقمة وواضحة.
+            5.  قدم تقديرًا للسعرات الحرارية والبروتين للوجبة الكاملة.
+            6.  أنشئ عبارة بحث قصيرة ومناسبة باللغة العربية للبحث عن فيديو لهذه الوصفة على يوتيوب.
+            أرجع كل هذا بتنسيق JSON دقيق باللغة العربية.`;
             return await callGemini(prompt, responseSchema);
         }
 
@@ -221,7 +239,7 @@
          */
         function displaySingleResult(originalData, alternativeData) {
             const card = document.createElement('div');
-            card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
+            card.className = 'result-card result-card-show bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
             const isFriendly = originalData.isFastingFriendly;
             const statusLabel = isFriendly ? 'مناسب للصيام' : 'يكسر الصيام';
             card.innerHTML = `
@@ -241,11 +259,10 @@
                 </div>
             `;
             resultContainer.appendChild(card);
-            setTimeout(() => card.classList.add('result-card-show'), 50);
 
             if (alternativeData) {
                 const alternativeCard = document.createElement('div');
-                alternativeCard.className = 'alternative-card bg-teal-900/50 border border-teal-700 rounded-xl p-6 text-right w-full';
+                alternativeCard.className = 'alternative-card alternative-card-show bg-teal-900/50 border border-teal-700 rounded-xl p-6 text-right w-full';
                 alternativeCard.innerHTML = `
                     <h3 class="text-xl font-bold text-white mb-3 text-center">💡 بديل أفضل مقترح</h3>
                     <div class="text-center">
@@ -255,15 +272,13 @@
                     </div>
                 `;
                 resultContainer.appendChild(alternativeCard);
-                setTimeout(() => alternativeCard.classList.add('alternative-card-show'), 200);
             }
 
             const explanationCard = document.createElement('div');
-            explanationCard.className = 'detailed-explanation bg-gray-800 border-dashed border-2 border-gray-700 rounded-xl p-6 text-right w-full';
+            explanationCard.className = 'detailed-explanation detailed-explanation-show bg-gray-800 border-dashed border-2 border-gray-700 rounded-xl p-6 text-right w-full';
             explanationCard.innerHTML = `<button id="explanationBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg">اطلب شرحًا تفصيليًا عن ${originalData.foodName}</button><div id="explanationLoader" class="hidden loader mx-auto mt-4"></div><div id="explanationResult" class="text-gray-300 mt-4 prose prose-invert max-w-none text-right"></div>`;
             resultContainer.appendChild(explanationCard);
             document.getElementById('explanationBtn').addEventListener('click', handleDetailedExplanation);
-            setTimeout(() => explanationCard.classList.add('detailed-explanation-show'), 350);
         }
 
         /**
@@ -274,20 +289,15 @@
                 showError("لم يتمكن من الحصول على بيانات المقارنة.");
                 return;
             }
-
             const card = document.createElement('div');
-            card.className = 'comparison-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
-
+            card.className = 'comparison-card comparison-card-show bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
             const foodNames = data.comparisonResults.map(item => item.name).join(' و ');
-            
             let gridColsClass = '';
             switch(data.comparisonResults.length) {
                 case 2: gridColsClass = 'grid-cols-2'; break;
                 case 3: gridColsClass = 'grid-cols-1 md:grid-cols-3'; break;
-                case 4: gridColsClass = 'grid-cols-2 md:grid-cols-4'; break;
                 default: gridColsClass = 'grid-cols-2 md:grid-cols-4'; break;
             }
-
             let columnsHTML = '';
             const colors = ['sky', 'emerald', 'amber', 'rose', 'indigo'];
             data.comparisonResults.forEach((item, index) => {
@@ -302,12 +312,9 @@
                     </div>
                 `;
             });
-
             card.innerHTML = `
                 <h2 class="text-2xl font-bold text-white text-center mb-6">مقارنة بين: ${foodNames}</h2>
-                <div class="grid ${gridColsClass} gap-4">
-                    ${columnsHTML}
-                </div>
+                <div class="grid ${gridColsClass} gap-4">${columnsHTML}</div>
                 <hr class="border-gray-700 my-6">
                 <div>
                     <h3 class="text-xl font-bold text-white mb-3 text-center">الحكم النهائي</h3>
@@ -315,7 +322,47 @@
                 </div>
             `;
             resultContainer.appendChild(card);
-            setTimeout(() => card.classList.add('comparison-card-show'), 50);
+        }
+        
+        /**
+         * Renders the recipe suggestion result.
+         */
+        function displayRecipeResult(data) {
+            const card = document.createElement('div');
+            card.className = 'recipe-card recipe-card-show bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full prose prose-invert max-w-none';
+            
+            const instructionsHTML = data.instructions.map(step => `<li>${step}</li>`).join('');
+            const youtubeLink = `https://www.youtube.com/results?search_query=${encodeURIComponent(data.youtubeSearchQuery)}`;
+
+            card.innerHTML = `
+                <h2 class="text-3xl font-bold text-center text-emerald-300 mb-2">${data.recipeName}</h2>
+                <p class="text-center text-gray-400 italic mb-6">${data.description}</p>
+                
+                <div class="bg-yellow-900/50 border border-yellow-700 rounded-lg p-4 mb-6">
+                    <h3 class="text-lg font-bold text-yellow-300">⭐ نصيحة صحية</h3>
+                    <p class="text-yellow-200">${data.healthAdvice}</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-center mb-6">
+                    <div class="bg-gray-700/50 p-3 rounded-lg">
+                        <p class="text-sm text-gray-400">السعرات التقريبية</p>
+                        <p class="text-xl font-semibold text-sky-300">${data.nutrition.calories}</p>
+                    </div>
+                    <div class="bg-gray-700/50 p-3 rounded-lg">
+                        <p class="text-sm text-gray-400">البروتين التقريبي</p>
+                        <p class="text-xl font-semibold text-sky-300">${data.nutrition.protein}</p>
+                    </div>
+                </div>
+
+                <h3 class="text-xl font-bold mb-3">📋 تعليمات التحضير</h3>
+                <ol class="list-decimal list-inside space-y-2 mb-6">${instructionsHTML}</ol>
+
+                <a href="${youtubeLink}" target="_blank" rel="noopener noreferrer" class="mt-4 inline-block w-full text-center bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-lg transition-colors duration-300 no-underline">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="inline-block ml-2 h-6 w-6" viewBox="0 0 24 24" fill="currentColor"><path d="M10,15L15.19,12L10,9V15M21.56,7.17C21.69,7.64 21.78,8.27 21.84,9.07C21.91,9.87 21.94,10.56 21.94,11.16L22,12C22,14.19 21.84,15.8 21.56,16.83C21.31,17.73 20.73,18.31 19.83,18.56C19.36,18.69 18.73,18.78 17.93,18.84C17.13,18.91 16.44,18.94 15.84,18.94L15,19C12.81,19 11.2,18.84 10.17,18.56C9.27,18.31 8.69,17.73 8.44,16.83C8.31,16.36 8.22,15.73 8.16,14.93C8.09,14.13 8.06,13.44 8.06,12.84L8,12C8,9.81 8.16,8.2 8.44,7.17C8.69,6.27 9.27,5.69 10.17,5.44C11.2,5.16 12.81,5 15,5L15.84,5.06C16.44,5.06 17.13,5.09 17.93,5.16C18.73,5.22 19.36,5.31 19.83,5.44C20.73,5.69 21.31,6.27 21.56,7.17Z"></path></svg>
+                    شاهد طريقة التحضير على يوتيوب
+                </a>
+            `;
+            resultContainer.appendChild(card);
         }
 
         async function handleDetailedExplanation() {
