@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>محلل طعام الصيام المتقطع</title>
+    <title>محلل ومقارن طعام الصيام المتقطع</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,14 +24,17 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        .result-card {
+        .result-card, .comparison-card, .detailed-explanation {
             opacity: 0;
             transform: scale(0.95);
             transition: opacity 0.5s ease, transform 0.5s ease;
         }
-        .result-card-show {
+        .result-card-show, .comparison-card-show, .detailed-explanation-show {
             opacity: 1;
             transform: scale(1);
+        }
+        .detailed-explanation {
+            transition-delay: 200ms;
         }
     </style>
 </head>
@@ -41,18 +44,18 @@
         
         <div class="w-full max-w-2xl text-center mb-8">
             <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-emerald-400 mb-2">
-                محلل طعام الصيام المتقطع
+                محلل ومقارن الطعام
             </h1>
             <p class="text-gray-400 mb-8 text-lg">
-                أدخل طعامًا لمعرفة معلوماته الغذائية وما إذا كان مناسبًا للصيام.
+                أدخل طعامًا واحدًا لتحليله، أو نوعين للمقارنة بينهما (مثال: تفاح و موز).
             </p>
 
             <!-- Input and Button -->
             <div class="flex flex-col sm:flex-row gap-2 mb-8">
-                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: قهوة سوداء، حفنة لوز، شريحة تفاح">
+                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: بيضة مسلوقة، أو تفاحة و برتقالة">
                 <button id="analyzeButton" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2"><path d="M20.4 14.5c-2.4-2.2-4.1-5.4-4.1-9.3V4a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1.2c0 3.9-1.7 7.1-4.1 9.3-1 .9-1.6 2.3-1.6 3.8V21h18v-2.8c0-1.5-.6-2.9-1.6-3.7z"></path><path d="M9 21h6"></path><path d="M12 3v1"></path></svg>
-                    تحليل الطعام
+                    تحليل أو مقارنة
                 </button>
             </div>
         </div>
@@ -61,7 +64,7 @@
         <div id="statusArea" class="text-center w-full max-w-2xl">
             <div id="loader" class="hidden loader mx-auto"></div>
             <div id="error" class="hidden text-red-400 bg-red-900/50 p-4 rounded-lg"></div>
-            <div id="resultContainer">
+            <div id="resultContainer" class="w-full space-y-6">
                 <!-- Result will be injected here -->
             </div>
             <div id="initialMessage" class="text-gray-500 mt-12">
@@ -80,6 +83,9 @@
         const resultContainer = document.getElementById('resultContainer');
         const initialMessage = document.getElementById('initialMessage');
 
+        // Store the last analysis result
+        let lastAnalysisData = null;
+
         // --- Event Listeners ---
         analyzeButton.addEventListener('click', handleAnalysis);
         foodInput.addEventListener('keydown', (event) => {
@@ -90,195 +96,219 @@
 
         /**
          * Main function to handle the analysis process.
+         * It decides whether to perform a single analysis or a comparison.
          */
         async function handleAnalysis() {
             const foodQuery = foodInput.value.trim();
-
             if (!foodQuery) {
                 showError("الرجاء إدخال طعام لتحليله.");
                 return;
             }
+            resetUIState();
 
-            // --- Reset UI State ---
+            // --- Logic to decide between single analysis and comparison ---
+            const separators = / و |،|,/i;
+            const parts = foodQuery.split(separators);
+
+            if (parts.length === 2 && parts[0].trim() && parts[1].trim()) {
+                // --- Comparison Flow ---
+                const food1 = parts[0].trim();
+                const food2 = parts[1].trim();
+                try {
+                    const comparisonData = await fetchFoodComparison(food1, food2);
+                    displayComparisonResult(comparisonData);
+                } catch (err) {
+                    handleApiError(err);
+                }
+            } else {
+                // --- Single Analysis Flow ---
+                try {
+                    lastAnalysisData = await fetchFoodAnalysis(foodQuery);
+                    displaySingleResult(lastAnalysisData);
+                } catch (err) {
+                    handleApiError(err);
+                }
+            }
+            hideLoader();
+        }
+        
+        /**
+         * Generic function to call the Gemini API with retry logic.
+         */
+        async function callGemini(prompt, responseSchema = null) {
+            const apiKey = "AIzaSyC8YmKYw6-Z-DxHTU8tv6V9fhhOa0pDqdU";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+            
+            const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
+            if (responseSchema) {
+                payload.generationConfig = { responseMimeType: "application/json", responseSchema: responseSchema };
+            }
+
+            const maxRetries = 4;
+            let delay = 2000;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
+                        const text = result.candidates[0].content.parts[0].text;
+                        return responseSchema ? JSON.parse(text) : text;
+                    } else { throw new Error("لم يتمكن من تحليل الاستجابة من الـ API."); }
+                }
+                if (response.status === 503 && attempt < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    delay *= 2;
+                } else {
+                    const errorBody = await response.text();
+                    throw new Error(`فشل طلب الـ API بالحالة ${response.status}: ${errorBody}`);
+                }
+            }
+        }
+
+        /**
+         * Fetches initial food analysis using a structured schema.
+         */
+        async function fetchFoodAnalysis(foodName) {
+            const responseSchema = { type: "OBJECT", properties: { foodName: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbohydrates: { type: "NUMBER" }, isFastingFriendly: { type: "BOOLEAN" }, reasoning: { type: "STRING" } }, required: ["foodName", "calories", "fat", "protein", "carbohydrates", "isFastingFriendly", "reasoning"] };
+            const prompt = `أنت خبير تغذية. حلل العنصر الغذائي: "${foodName}". حدد ما إذا كان يكسر الصيام (أكثر من 10 سعرات). قدم باللغة العربية: foodName, calories, fat, protein, carbohydrates, isFastingFriendly, reasoning. أرجع البيانات كـ JSON.`;
+            return await callGemini(prompt, responseSchema);
+        }
+
+        /**
+         * Fetches comparison data for two foods.
+         */
+        async function fetchFoodComparison(food1, food2) {
+            const responseSchema = {
+                type: "OBJECT",
+                properties: {
+                    item1: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } },
+                    item2: { type: "OBJECT", properties: { name: { type: "STRING" }, calories: { type: "NUMBER" }, fat: { type: "NUMBER" }, protein: { type: "NUMBER" }, carbs: { type: "NUMBER" } } },
+                    verdict: { type: "STRING" }
+                },
+                required: ["item1", "item2", "verdict"]
+            };
+            const prompt = `أنت خبير تغذية. قارن بالتفصيل بين "${food1}" و "${food2}". قدم البيانات باللغة العربية في صيغة JSON حسب الـ schema. يجب أن يحتوي الحكم النهائي (verdict) على ملخص للمقارنة وتوصية واضحة بناءً على هدف شائع (مثل فقدان الوزن أو الصحة العامة).`;
+            return await callGemini(prompt, responseSchema);
+        }
+
+        /**
+         * Renders the single analysis result.
+         */
+        function displaySingleResult(data) {
+            const card = document.createElement('div');
+            card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
+            const isFriendly = data.isFastingFriendly;
+            const statusLabel = isFriendly ? 'مناسب للصيام' : 'يكسر الصيام';
+            card.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="text-2xl font-bold text-white">${data.foodName}</h2>
+                    <span class="flex items-center text-sm font-bold px-3 py-1.5 rounded-full ${isFriendly ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}">
+                        <span class="w-2 h-2 ml-2 rounded-full ${isFriendly ? 'bg-green-400' : 'bg-red-400'}"></span>
+                        ${statusLabel}
+                    </span>
+                </div>
+                <p class="text-gray-400 mb-6 italic">"${data.reasoning}"</p>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">السعرات</p><p class="text-2xl font-semibold text-sky-300">${(data.calories ?? 0).toFixed(0)}</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">الدهون</p><p class="text-2xl font-semibold text-sky-300">${(data.fat ?? 0).toFixed(1)} ج</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">البروتين</p><p class="text-2xl font-semibold text-sky-300">${(data.protein ?? 0).toFixed(1)} ج</p></div>
+                    <div class="bg-gray-700/50 p-4 rounded-lg"><p class="text-sm text-gray-400 mb-1">الكربوهيدرات</p><p class="text-2xl font-semibold text-sky-300">${(data.carbohydrates ?? 0).toFixed(1)} ج</p></div>
+                </div>
+            `;
+            const explanationCard = document.createElement('div');
+            explanationCard.className = 'detailed-explanation bg-gray-800 border-dashed border-2 border-gray-700 rounded-xl p-6 text-right w-full';
+            explanationCard.innerHTML = `<button id="explanationBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg">اطلب شرحًا تفصيليًا عن ${data.foodName}</button><div id="explanationLoader" class="hidden loader mx-auto mt-4"></div><div id="explanationResult" class="text-gray-300 mt-4 prose prose-invert max-w-none text-right"></div>`;
+            resultContainer.appendChild(card);
+            resultContainer.appendChild(explanationCard);
+            document.getElementById('explanationBtn').addEventListener('click', handleDetailedExplanation);
+            setTimeout(() => card.classList.add('result-card-show'), 50);
+            setTimeout(() => explanationCard.classList.add('detailed-explanation-show'), 250);
+        }
+
+        /**
+         * Renders the comparison result.
+         */
+        function displayComparisonResult(data) {
+            const card = document.createElement('div');
+            card.className = 'comparison-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
+            card.innerHTML = `
+                <h2 class="text-2xl font-bold text-white text-center mb-6">مقارنة بين: ${data.item1.name} و ${data.item2.name}</h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Item 1 Column -->
+                    <div class="border-l border-gray-700 pl-4">
+                        <h3 class="text-xl font-bold text-sky-300 mb-3">${data.item1.name}</h3>
+                        <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(data.item1.calories ?? 0).toFixed(0)}</p>
+                        <p class="mb-2"><span class="font-semibold">الدهون:</span> ${(data.item1.fat ?? 0).toFixed(1)} ج</p>
+                        <p class="mb-2"><span class="font-semibold">البروتين:</span> ${(data.item1.protein ?? 0).toFixed(1)} ج</p>
+                        <p class="mb-2"><span class="font-semibold">الكربوهيدرات:</span> ${(data.item1.carbs ?? 0).toFixed(1)} ج</p>
+                    </div>
+                    <!-- Item 2 Column -->
+                    <div>
+                        <h3 class="text-xl font-bold text-emerald-300 mb-3">${data.item2.name}</h3>
+                        <p class="mb-2"><span class="font-semibold">السعرات:</span> ${(data.item2.calories ?? 0).toFixed(0)}</p>
+                        <p class="mb-2"><span class="font-semibold">الدهون:</span> ${(data.item2.fat ?? 0).toFixed(1)} ج</p>
+                        <p class="mb-2"><span class="font-semibold">البروتين:</span> ${(data.item2.protein ?? 0).toFixed(1)} ج</p>
+                        <p class="mb-2"><span class="font-semibold">الكربوهيدرات:</span> ${(data.item2.carbs ?? 0).toFixed(1)} ج</p>
+                    </div>
+                </div>
+                <hr class="border-gray-700 my-6">
+                <div>
+                    <h3 class="text-xl font-bold text-white mb-3 text-center">الحكم النهائي</h3>
+                    <p class="text-gray-300 leading-relaxed">${data.verdict}</p>
+                </div>
+            `;
+            resultContainer.appendChild(card);
+            setTimeout(() => card.classList.add('comparison-card-show'), 50);
+        }
+
+        async function handleDetailedExplanation() {
+            const btn = document.getElementById('explanationBtn');
+            const loader = document.getElementById('explanationLoader');
+            const resultDiv = document.getElementById('explanationResult');
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+            loader.classList.remove('hidden');
+            resultDiv.innerHTML = '';
+            try {
+                const prompt = `بصفتك خبير تغذية، قدم شرحًا تفصيليًا ومفصلاً باللغة العربية عن "${lastAnalysisData.foodName}". يجب أن يتضمن الشرح: الفوائد الصحية، التوافق مع الأنظمة الغذائية (كيتو، نباتي)، نصائح للتناول، ومحاذير (إن وجدت).`;
+                const explanation = await callGemini(prompt);
+                resultDiv.innerHTML = explanation.replace(/\n/g, '<br>');
+            } catch (err) {
+                handleApiError(err, resultDiv);
+            } finally {
+                loader.classList.add('hidden');
+                btn.style.display = 'none';
+            }
+        }
+
+        // --- UI State and Error Helper Functions ---
+        function resetUIState() {
             hideError();
             resultContainer.innerHTML = '';
             initialMessage.classList.add('hidden');
             showLoader();
             analyzeButton.disabled = true;
             analyzeButton.classList.add('opacity-50', 'cursor-not-allowed');
-
-            try {
-                const analysis = await fetchFoodAnalysis(foodQuery);
-                displayResult(analysis);
-            } catch (err) {
-                console.error("An error occurred:", err);
-                // Check if the error message indicates a 503 (overloaded) failure
-                if (err.message && (err.message.includes("status 503") || err.message.includes("The model is overloaded"))) {
-                    showError("خدمة التحليل مشغولة حاليًا. يرجى الانتظار لحظة ثم إعادة المحاولة.");
-                } else {
-                    showError("عذرًا، حدث خطأ غير متوقع. يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.");
-                }
-            } finally {
-                // --- Restore UI State ---
-                hideLoader();
-                analyzeButton.disabled = false;
-                analyzeButton.classList.remove('opacity-50', 'cursor-not-allowed');
-            }
         }
-
-        /**
-         * Fetches food analysis using the Gemini API with a structured response schema.
-         * Implements a retry mechanism with exponential backoff for 503 errors.
-         * @param {string} foodName - The name of the food to analyze.
-         * @returns {Promise<Object>} - A promise that resolves to the analysis object.
-         */
-        async function fetchFoodAnalysis(foodName) {
-            // --- Gemini API Configuration ---
-            const apiKey = "AIzaSyC8YmKYw6-Z-DxHTU8tv6V9fhhOa0pDqdU"; // Your API Key
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
-
-            // --- Define the expected JSON structure for the AI's response ---
-            const responseSchema = {
-                type: "OBJECT",
-                properties: {
-                    foodName: { type: "STRING" },
-                    calories: { type: "NUMBER" },
-                    fat: { type: "NUMBER" },
-                    protein: { type: "NUMBER" },
-                    carbohydrates: { type: "NUMBER" },
-                    isFastingFriendly: { type: "BOOLEAN" },
-                    reasoning: { type: "STRING" }
-                },
-                required: ["foodName", "calories", "fat", "protein", "carbohydrates", "isFastingFriendly", "reasoning"]
-            };
-
-            // --- Craft the prompt for the AI in Arabic ---
-            const prompt = `
-                أنت خبير تغذية متخصص في الصيام المتقطع.
-                حلل العنصر الغذائي التالي: "${foodName}".
-
-                مهمتك هي تقديم تفاصيل غذائية وتحديد ما إذا كان هذا الطعام يكسر الصيام.
-                يكسر الطعام الصيام إذا كان يحتوي على أكثر من كمية ضئيلة من السعرات الحرارية (بشكل عام > 5-10 سعرات) أو يسبب استجابة إنسولين كبيرة (من السكريات أو البروتين).
-                - القهوة السوداء والشاي العادي والماء تعتبر آمنة بشكل عام.
-                - أي شيء يحتوي على كميات كبيرة من الدهون أو البروتينات أو الكربوهيدرات سيكسر الصيام.
-
-                قدم التفاصيل التالية باللغة العربية:
-                1.  **foodName**: اسم الطعام الذي قمت بتحليله.
-                2.  **calories**: السعرات الحرارية التقديرية (كرقم).
-                3.  **fat**: جرامات الدهون التقديرية (كرقم).
-                4.  **protein**: جرامات البروتين التقديرية (كرقم).
-                5.  **carbohydrates**: جرامات الكربوهيدرات التقديرية (كرقم).
-                6.  **isFastingFriendly**: قيمة منطقية (true إذا كان لا يكسر الصيام، و false إذا كان يكسره).
-                7.  **reasoning**: شرح موجز من جملة واحدة لقرارك باللغة العربية.
-
-                أرجع البيانات بتنسيق JSON المطلوب بدقة. لا تقم بتضمين أي نصوص أو شروحات أخرى.
-            `;
-            
-            const payload = {
-                contents: [{ role: "user", parts: [{ text: prompt }] }],
-                generationConfig: {
-                    responseMimeType: "application/json",
-                    responseSchema: responseSchema
-                }
-            };
-            
-            // --- Retry Logic ---
-            const maxRetries = 4;
-            let delay = 2000;
-
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-
-                if (response.ok) {
-                    const result = await response.json();
-                    if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
-                        const jsonText = result.candidates[0].content.parts[0].text;
-                        return JSON.parse(jsonText);
-                    } else {
-                        console.warn("Unexpected API response structure:", result);
-                        throw new Error("Could not parse the analysis from the API response.");
-                    }
-                }
-
-                if (response.status === 503 && attempt < maxRetries) {
-                    console.log(`Attempt ${attempt} failed with 503. Retrying in ${delay / 1000}s...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    delay *= 2;
-                } else {
-                    const errorBody = await response.text();
-                    throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
-                }
-            }
-        }
-
-        /**
-         * Renders the analysis result in a card.
-         * @param {Object} data - The analysis data from the API.
-         */
-        function displayResult(data) {
-            resultContainer.innerHTML = ''; // Clear previous result
-
-            const card = document.createElement('div');
-            card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
-
-            const isFriendly = data.isFastingFriendly;
-            const statusBg = isFriendly ? 'bg-green-500/20' : 'bg-red-500/20';
-            const statusText = isFriendly ? 'text-green-300' : 'text-red-300';
-            const statusDot = isFriendly ? 'bg-green-400' : 'bg-red-400';
-            const statusLabel = isFriendly ? 'مناسب للصيام' : 'يكسر الصيام';
-
-            card.innerHTML = `
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-2xl font-bold text-white">${data.foodName}</h2>
-                    <span class="flex items-center text-sm font-bold px-3 py-1.5 rounded-full ${statusBg} ${statusText}">
-                        <span class="w-2 h-2 ml-2 rounded-full ${statusDot}"></span>
-                        ${statusLabel}
-                    </span>
-                </div>
-
-                <p class="text-gray-400 mb-6 italic">"${data.reasoning}"</p>
-
-                <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-                    <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">السعرات</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.calories.toFixed(0)}</p>
-                    </div>
-                    <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">الدهون</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.fat.toFixed(1)} جرام</p>
-                    </div>
-                    <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">البروتين</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.protein.toFixed(1)} جرام</p>
-                    </div>
-                    <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">الكربوهيدرات</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.carbohydrates.toFixed(1)} جرام</p>
-                    </div>
-                </div>
-            `;
-            
-            resultContainer.appendChild(card);
-            
-            // Trigger animation
-            setTimeout(() => {
-                card.classList.add('result-card-show');
-            }, 50);
-        }
-
-        // --- UI State Helper Functions ---
         function showLoader() { loader.classList.remove('hidden'); }
-        function hideLoader() { loader.classList.add('hidden'); }
+        function hideLoader() { 
+            loader.classList.add('hidden');
+            analyzeButton.disabled = false;
+            analyzeButton.classList.remove('opacity-50', 'cursor-not-allowed');
+        }
         function showError(message) {
             errorContainer.textContent = message;
             errorContainer.classList.remove('hidden');
         }
         function hideError() { errorContainer.classList.add('hidden'); }
-
+        function handleApiError(err, element = errorContainer) {
+            console.error("An error occurred:", err);
+            const message = (err.message && (err.message.includes("status 503") || err.message.includes("The model is overloaded")))
+                ? "خدمة التحليل مشغولة حاليًا. يرجى الانتظار لحظة ثم إعادة المحاولة."
+                : "عذرًا، حدث خطأ غير متوقع. يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.";
+            if (element === errorContainer) { showError(message); } 
+            else { element.innerHTML = `<p class="text-red-400">${message}</p>`; }
+        }
     </script>
 </body>
 </html>
