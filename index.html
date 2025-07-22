@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Intermittent Fasting Food Analyzer</title>
+    <title>محلل طعام الصيام المتقطع</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: 'Cairo', sans-serif;
         }
         .loader {
             border: 4px solid #f3f3f3;
@@ -41,18 +41,18 @@
         
         <div class="w-full max-w-2xl text-center mb-8">
             <h1 class="text-4xl md:text-5xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-sky-400 to-emerald-400 mb-2">
-                IF Food Analyzer
+                محلل طعام الصيام المتقطع
             </h1>
             <p class="text-gray-400 mb-8 text-lg">
-                Enter a food to see its nutritional info and if it's fasting-friendly.
+                أدخل طعامًا لمعرفة معلوماته الغذائية وما إذا كان مناسبًا للصيام.
             </p>
 
             <!-- Input and Button -->
             <div class="flex flex-col sm:flex-row gap-2 mb-8">
-                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500" placeholder="e.g., black coffee, handful of almonds, apple slice">
+                <input type="text" id="foodInput" class="flex-grow bg-gray-800 border border-gray-700 text-white rounded-lg p-4 focus:ring-2 focus:ring-sky-500 focus:outline-none placeholder-gray-500 text-right" placeholder="مثال: قهوة سوداء، حفنة لوز، شريحة تفاح">
                 <button id="analyzeButton" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 px-6 rounded-lg transition-colors duration-300 flex items-center justify-center">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2"><path d="M20.4 14.5c-2.4-2.2-4.1-5.4-4.1-9.3V4a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1.2c0 3.9-1.7 7.1-4.1 9.3-1 .9-1.6 2.3-1.6 3.8V21h18v-2.8c0-1.5-.6-2.9-1.6-3.7z"></path><path d="M9 21h6"></path><path d="M12 3v1"></path></svg>
-                    Analyze Food
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="ml-2"><path d="M20.4 14.5c-2.4-2.2-4.1-5.4-4.1-9.3V4a1 1 0 0 0-1-1H9a1 1 0 0 0-1 1v1.2c0 3.9-1.7 7.1-4.1 9.3-1 .9-1.6 2.3-1.6 3.8V21h18v-2.8c0-1.5-.6-2.9-1.6-3.7z"></path><path d="M9 21h6"></path><path d="M12 3v1"></path></svg>
+                    تحليل الطعام
                 </button>
             </div>
         </div>
@@ -65,7 +65,7 @@
                 <!-- Result will be injected here -->
             </div>
             <div id="initialMessage" class="text-gray-500 mt-12">
-                <p>Your food analysis will appear here.</p>
+                <p>ستظهر نتائج تحليل طعامك هنا.</p>
             </div>
         </div>
 
@@ -95,7 +95,7 @@
             const foodQuery = foodInput.value.trim();
 
             if (!foodQuery) {
-                showError("Please enter a food to analyze.");
+                showError("الرجاء إدخال طعام لتحليله.");
                 return;
             }
 
@@ -114,9 +114,9 @@
                 console.error("An error occurred:", err);
                 // Check if the error message indicates a 503 (overloaded) failure
                 if (err.message && (err.message.includes("status 503") || err.message.includes("The model is overloaded"))) {
-                    showError("The analysis service is currently busy. Please wait a moment and try your search again.");
+                    showError("خدمة التحليل مشغولة حاليًا. يرجى الانتظار لحظة ثم إعادة المحاولة.");
                 } else {
-                    showError("Sorry, an unknown error occurred. Please check your connection and try again.");
+                    showError("عذرًا، حدث خطأ غير متوقع. يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى.");
                 }
             } finally {
                 // --- Restore UI State ---
@@ -152,26 +152,26 @@
                 required: ["foodName", "calories", "fat", "protein", "carbohydrates", "isFastingFriendly", "reasoning"]
             };
 
-            // --- Craft the prompt for the AI ---
+            // --- Craft the prompt for the AI in Arabic ---
             const prompt = `
-                You are a nutritional expert specializing in intermittent fasting (IF).
-                Analyze the following food item: "${foodName}".
+                أنت خبير تغذية متخصص في الصيام المتقطع.
+                حلل العنصر الغذائي التالي: "${foodName}".
 
-                Your task is to provide a nutritional breakdown and determine if it would break a fast.
-                A food breaks a fast if it contains more than a negligible amount of calories (generally > 5-10 kcal) or triggers a significant insulin response (e.g., from sugars or protein).
-                - Black coffee, plain tea, and water are generally considered safe.
-                - Anything with significant fats, proteins, or carbohydrates will break a fast.
+                مهمتك هي تقديم تفاصيل غذائية وتحديد ما إذا كان هذا الطعام يكسر الصيام.
+                يكسر الطعام الصيام إذا كان يحتوي على أكثر من كمية ضئيلة من السعرات الحرارية (بشكل عام > 5-10 سعرات) أو يسبب استجابة إنسولين كبيرة (من السكريات أو البروتين).
+                - القهوة السوداء والشاي العادي والماء تعتبر آمنة بشكل عام.
+                - أي شيء يحتوي على كميات كبيرة من الدهون أو البروتينات أو الكربوهيدرات سيكسر الصيام.
 
-                Provide the following details:
-                1.  **foodName**: The name of the food you analyzed.
-                2.  **calories**: Estimated calories (as a number).
-                3.  **fat**: Estimated grams of fat (as a number).
-                4.  **protein**: Estimated grams of protein (as a number).
-                5.  **carbohydrates**: Estimated grams of carbohydrates (as a number).
-                6.  **isFastingFriendly**: A boolean (true if it does NOT break a fast, false if it DOES).
-                7.  **reasoning**: A brief, one-sentence explanation for your decision.
+                قدم التفاصيل التالية باللغة العربية:
+                1.  **foodName**: اسم الطعام الذي قمت بتحليله.
+                2.  **calories**: السعرات الحرارية التقديرية (كرقم).
+                3.  **fat**: جرامات الدهون التقديرية (كرقم).
+                4.  **protein**: جرامات البروتين التقديرية (كرقم).
+                5.  **carbohydrates**: جرامات الكربوهيدرات التقديرية (كرقم).
+                6.  **isFastingFriendly**: قيمة منطقية (true إذا كان لا يكسر الصيام، و false إذا كان يكسره).
+                7.  **reasoning**: شرح موجز من جملة واحدة لقرارك باللغة العربية.
 
-                Return the data strictly in the requested JSON format. Do not include any other text, explanations, or markdown.
+                أرجع البيانات بتنسيق JSON المطلوب بدقة. لا تقم بتضمين أي نصوص أو شروحات أخرى.
             `;
             
             const payload = {
@@ -183,8 +183,8 @@
             };
             
             // --- Retry Logic ---
-            const maxRetries = 4; // Increased from 3 to 4
-            let delay = 2000; // Increased from 1500ms to 2000ms
+            const maxRetries = 4;
+            let delay = 2000;
 
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 const response = await fetch(apiUrl, {
@@ -193,26 +193,22 @@
                     body: JSON.stringify(payload)
                 });
 
-                // If the request was successful, parse and return the data
                 if (response.ok) {
                     const result = await response.json();
                     if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
                         const jsonText = result.candidates[0].content.parts[0].text;
                         return JSON.parse(jsonText);
                     } else {
-                        // Successful response but unexpected structure. Don't retry.
                         console.warn("Unexpected API response structure:", result);
                         throw new Error("Could not parse the analysis from the API response.");
                     }
                 }
 
-                // If the service is unavailable (503) and we have retries left, wait and try again.
                 if (response.status === 503 && attempt < maxRetries) {
                     console.log(`Attempt ${attempt} failed with 503. Retrying in ${delay / 1000}s...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
-                    delay *= 2; // Double the delay for the next attempt (exponential backoff)
+                    delay *= 2;
                 } else {
-                    // For other errors, or if all retries fail, throw the final error.
                     const errorBody = await response.text();
                     throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
                 }
@@ -227,19 +223,19 @@
             resultContainer.innerHTML = ''; // Clear previous result
 
             const card = document.createElement('div');
-            card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-left w-full';
+            card.className = 'result-card bg-gray-800 border border-gray-700 rounded-xl p-6 text-right w-full';
 
             const isFriendly = data.isFastingFriendly;
             const statusBg = isFriendly ? 'bg-green-500/20' : 'bg-red-500/20';
             const statusText = isFriendly ? 'text-green-300' : 'text-red-300';
             const statusDot = isFriendly ? 'bg-green-400' : 'bg-red-400';
-            const statusLabel = isFriendly ? 'FASTING FRIENDLY' : 'BREAKS FAST';
+            const statusLabel = isFriendly ? 'مناسب للصيام' : 'يكسر الصيام';
 
             card.innerHTML = `
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="text-2xl font-bold text-white">${data.foodName}</h2>
                     <span class="flex items-center text-sm font-bold px-3 py-1.5 rounded-full ${statusBg} ${statusText}">
-                        <span class="w-2 h-2 mr-2 rounded-full ${statusDot}"></span>
+                        <span class="w-2 h-2 ml-2 rounded-full ${statusDot}"></span>
                         ${statusLabel}
                     </span>
                 </div>
@@ -248,20 +244,20 @@
 
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
                     <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">Calories</p>
+                        <p class="text-sm text-gray-400 mb-1">السعرات</p>
                         <p class="text-2xl font-semibold text-sky-300">${data.calories.toFixed(0)}</p>
                     </div>
                     <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">Fat</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.fat.toFixed(1)}g</p>
+                        <p class="text-sm text-gray-400 mb-1">الدهون</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.fat.toFixed(1)} جرام</p>
                     </div>
                     <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">Protein</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.protein.toFixed(1)}g</p>
+                        <p class="text-sm text-gray-400 mb-1">البروتين</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.protein.toFixed(1)} جرام</p>
                     </div>
                     <div class="bg-gray-700/50 p-4 rounded-lg">
-                        <p class="text-sm text-gray-400 mb-1">Carbs</p>
-                        <p class="text-2xl font-semibold text-sky-300">${data.carbohydrates.toFixed(1)}g</p>
+                        <p class="text-sm text-gray-400 mb-1">الكربوهيدرات</p>
+                        <p class="text-2xl font-semibold text-sky-300">${data.carbohydrates.toFixed(1)} جرام</p>
                     </div>
                 </div>
             `;
